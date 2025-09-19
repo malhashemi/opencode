@@ -7,7 +7,6 @@ import { MessageV2 } from "../session/message-v2"
 import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
 import { accessibleSubagents } from "../agent/subagents"
-import { Config } from "../config/config"
 import { SessionPrompt } from "../session/prompt"
 
 export const TaskTool = Tool.define("task", async () => {
@@ -21,7 +20,6 @@ export const TaskTool = Tool.define("task", async () => {
       subagent_type: z.string().describe("The type of specialized agent to use for this task"),
     }),
     async execute(params, ctx) {
-      const cfg = await Config.get()
       const caller = await Agent.get(ctx.agent)
       if (!caller) throw new Error(`Unknown invoking agent: ${ctx.agent}`)
       const allowedList = await accessibleSubagents(caller.name)
