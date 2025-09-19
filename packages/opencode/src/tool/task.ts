@@ -6,16 +6,13 @@ import { Bus } from "../bus"
 import { MessageV2 } from "../session/message-v2"
 import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
+import { accessibleSubagents, isSubagentEnabled } from "../agent/subagents"
+import { Config } from "../config/config"
 import { SessionPrompt } from "../session/prompt"
 
 export const TaskTool = Tool.define("task", async () => {
-  const agents = await Agent.list().then((x) => x.filter((a) => a.mode !== "primary"))
-  const description = DESCRIPTION.replace(
-    "{agents}",
-    agents
-      .map((a) => `- ${a.name}: ${a.description ?? "This subagent should only be called manually by the user."}`)
-      .join("\n"),
-  )
+  // Build dynamic description placeholder – actual agent list inserted at execution time
+  const description = DESCRIPTION.replace("{agents}", "(computed per invoking agent)")
   return {
     description,
     parameters: z.object({
@@ -24,8 +21,22 @@ export const TaskTool = Tool.define("task", async () => {
       subagent_type: z.string().describe("The type of specialized agent to use for this task"),
     }),
     async execute(params, ctx) {
+      const cfg = await Config.get()
+      const caller = await Agent.get(ctx.agent)
+      if (!caller) throw new Error(`Unknown invoking agent: ${ctx.agent}`)
+      const globalMap = (cfg as any).subagents as Record<string, boolean> | undefined
+      const perAgentMap = (cfg.agent?.[caller.name] as any)?.subagents as Record<string, boolean> | undefined
+      const allowedList = await accessibleSubagents(caller.name)
       const agent = await Agent.get(params.subagent_type)
-      if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
+      if (!agent) throw new Error(`Unknown subagent: ${params.subagent_type}`)
+      if (!allowedList.find((a) => a.name === agent.name)) {
+        const enabledHint = allowedList.length
+          ? `Enabled subagents: ${allowedList.map((a) => a.name).join(", ")}`
+          : `No subagents are enabled for agent '${caller.name}'.`
+        throw new Error(
+          `Subagent '${agent.name}' is not enabled for agent '${caller.name}'. ${enabledHint} Configure via global 'subagents' or agent '${caller.name}'.subagents map.`,
+        )
+      }
       const session = await Session.create(ctx.sessionID, params.description + ` (@${agent.name} subagent)`)
       const msg = await Session.getMessage(ctx.sessionID, ctx.messageID)
       if (msg.info.role !== "assistant") throw new Error("Not an assistant message")

@@ -268,6 +268,24 @@ You can configure MCP servers you want to use through the `mcp` option.
 
 ---
 
+### Subagents
+
+Control global subagent availability with the `subagents` map. Use `"*": false` to disable all, then re-enable per primary agent with `agent.<name>.subagents`.
+
+```json title="Disable all; enable general for build"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "subagents": { "*": false },
+  "agent": {
+    "build": { "subagents": { "general": true } }
+  }
+}
+```
+
+See more patterns in the Agents guide.
+
+---
+
 ### Instructions
 
 You can configure the instructions for the model you're using through the `instructions` option.

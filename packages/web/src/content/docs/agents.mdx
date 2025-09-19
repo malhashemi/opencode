@@ -519,6 +519,85 @@ The `mode` option can be set to `primary`, `subagent`, or `all`. If no `mode` is
 
 ---
 
+### Subagents access
+
+You can globally disable all subagents and selectively enable them per primary agent. This reduces token usage and decision overhead when most subagents are irrelevant for a workflow.
+
+Global control uses the top-level `subagents` map. Per-agent overrides use `agent.<name>.subagents`.
+
+If you do nothing, current behavior is unchanged: all subagents are available.
+
+```json title="Disable every subagent everywhere"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "subagents": { "*": false }
+}
+```
+
+Enable one subagent back for a specific primary agent:
+
+```json title="Enable only general for build"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "subagents": { "*": false },
+  "agent": {
+    "build": {
+      "subagents": { "general": true }
+    }
+  }
+}
+```
+
+Use wildcards to enable a group:
+
+```json title="Enable doc-* for plan, doc-* plus git-committer for build"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "subagents": { "*": false },
+  "agent": {
+    "plan": { "subagents": { "doc-*": true } },
+    "build": { "subagents": { "doc-*": true, "git-committer": true } }
+  }
+}
+```
+
+Enable everything except one:
+
+```json title="All except git-committer"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "subagents": { "*": false },
+  "agent": {
+    "build": { "subagents": { "*": true, "git-committer": false } }
+  }
+}
+```
+
+Refine globally enabled patterns per agent:
+
+```json title="Refine git-* off for plan"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "subagents": { "*": false, "general": true, "git-*": true },
+  "agent": {
+    "plan": { "subagents": { "git-*": false } }
+  }
+}
+```
+
+Resolution rules:
+
+- Start allow = true unless `"*": false` is present globally (default deny mode)
+- Most specific matching pattern wins (longer literal prefix first; later definition on tie)
+- Per-agent overrides always applied after global
+
+If a subagent is disabled:
+
+- It won't appear in the Task tool list
+- `@mention` attempts return a short advisory message
+
+---
+
 ### Additional
 
 Any other options you specify in your agent configuration will be **passed through directly** to the provider as model options. This allows you to use provider-specific features and parameters.

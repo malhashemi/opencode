@@ -266,6 +266,12 @@ export namespace Config {
       top_p: z.number().optional(),
       prompt: z.string().optional(),
       tools: z.record(z.string(), z.boolean()).optional(),
+      subagents: z
+        .record(z.string(), z.boolean())
+        .optional()
+        .describe(
+          "Per-agent subagent enable/disable map. Supports wildcards. Evaluated after global 'subagents' map.",
+        ),
       disable: z.boolean().optional(),
       description: z.string().optional().describe("Description of when to use the agent"),
       mode: z.union([z.literal("subagent"), z.literal("primary"), z.literal("all")]).optional(),
@@ -493,6 +499,12 @@ export namespace Config {
         })
         .optional(),
       tools: z.record(z.string(), z.boolean()).optional(),
+      subagents: z
+        .record(z.string(), z.boolean())
+        .optional()
+        .describe(
+          "Global subagent enable/disable map. Use \"*\": false to disable all then re-enable per agent. Supports wildcards.",
+        ),
       experimental: z
         .object({
           hook: z

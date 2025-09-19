@@ -48,6 +48,7 @@ import { ulid } from "ulid"
 import { spawn } from "child_process"
 import { Command } from "../command"
 import { $ } from "bun"
+import { Config } from "../config/config"
 
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
@@ -1446,7 +1447,17 @@ export namespace SessionPrompt {
 
     const agent = await Agent.get(agentName)
     if ((agent.mode === "subagent" && command.subtask !== false) || command.subtask === true) {
-      using abort = lock(input.sessionID)
+      // Allow list enforcement for subagent auto invocation
+      const cfg = await Config.get()
+      const globalMap = (cfg as any).subagents as Record<string, boolean> | undefined
+      const invoking = input.agent ?? "build"
+      const perAgentMap = (cfg.agent?.[invoking] as any)?.subagents as Record<string, boolean> | undefined
+      const { isSubagentEnabled } = await import("../agent/subagents")
+      const allowed = isSubagentEnabled(invoking, agent.name, { global: globalMap, perAgent: perAgentMap })
+      if (!allowed) {
+        log.info("blocked subagent auto invocation", { invoking, subagent: agent.name })
+      } else {
+        using abort = lock(input.sessionID)
 
       const userMsg: MessageV2.User = {
         id: Identifier.ascending("message"),
@@ -1553,7 +1564,8 @@ export namespace SessionPrompt {
         await Session.updatePart(toolPart)
       }
 
-      return { info: assistantMsg, parts: [toolPart] }
+        return { info: assistantMsg, parts: [toolPart] }
+      }
     }
 
     return prompt({
