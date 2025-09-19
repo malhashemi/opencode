@@ -1,9 +1,8 @@
-import { describe, expect, test, beforeAll } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { accessibleSubagents, _internal } from "../../src/agent/subagents"
 import { Instance } from "../../src/project/instance"
 import { Config } from "../../src/config/config"
-import { Agent } from "../../src/agent/agent"
-import { mergeDeep } from "remeda"
+// removed unused imports
 
 // Utility to provide a synthetic config for tests
 async function withConfig<T>(cfg: any, fn: () => Promise<T>) {

@@ -60,7 +60,7 @@ export async function accessibleSubagents(forAgent: string) {
   })
 }
 
-export function isSubagentEnabled(forAgent: string, subagentName: string, context: { global?: Record<string, boolean>; perAgent?: Record<string, boolean> }) {
+export function isSubagentEnabled(_forAgent: string, subagentName: string, context: { global?: Record<string, boolean>; perAgent?: Record<string, boolean> }) {
   const globalMap = context.global
   const perAgentMap = context.perAgent
   const globalDefaultDeny = globalMap?.["*"] === false

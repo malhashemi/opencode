@@ -6,7 +6,7 @@ import { Bus } from "../bus"
 import { MessageV2 } from "../session/message-v2"
 import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
-import { accessibleSubagents, isSubagentEnabled } from "../agent/subagents"
+import { accessibleSubagents } from "../agent/subagents"
 import { Config } from "../config/config"
 import { SessionPrompt } from "../session/prompt"
 
@@ -24,8 +24,6 @@ export const TaskTool = Tool.define("task", async () => {
       const cfg = await Config.get()
       const caller = await Agent.get(ctx.agent)
       if (!caller) throw new Error(`Unknown invoking agent: ${ctx.agent}`)
-      const globalMap = (cfg as any).subagents as Record<string, boolean> | undefined
-      const perAgentMap = (cfg.agent?.[caller.name] as any)?.subagents as Record<string, boolean> | undefined
       const allowedList = await accessibleSubagents(caller.name)
       const agent = await Agent.get(params.subagent_type)
       if (!agent) throw new Error(`Unknown subagent: ${params.subagent_type}`)
