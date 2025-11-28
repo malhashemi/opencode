@@ -20,7 +20,7 @@ import { CommandProvider, useCommandDialog } from "@tui/component/dialog-command
 import { DialogAgent } from "@tui/component/dialog-agent"
 import { DialogSessionList } from "@tui/component/dialog-session-list"
 import { KeybindProvider } from "@tui/context/keybind"
-import { ThemeProvider, useTheme } from "@tui/context/theme"
+import { ThemeProvider, useTheme, getTerminalBackgroundColor } from "@tui/context/theme"
 import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
 import { PromptHistoryProvider } from "./component/prompt/history"
@@ -34,66 +34,6 @@ import { Provider } from "@/provider/provider"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
 import open from "open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
-
-async function getTerminalBackgroundColor(): Promise<"dark" | "light"> {
-  // can't set raw mode if not a TTY
-  if (!process.stdin.isTTY) return "dark"
-
-  return new Promise((resolve) => {
-    let timeout: NodeJS.Timeout
-
-    const cleanup = () => {
-      process.stdin.setRawMode(false)
-      process.stdin.removeListener("data", handler)
-      clearTimeout(timeout)
-    }
-
-    const handler = (data: Buffer) => {
-      const str = data.toString()
-      const match = str.match(/\x1b]11;([^\x07\x1b]+)/)
-      if (match) {
-        cleanup()
-        const color = match[1]
-        // Parse RGB values from color string
-        // Formats: rgb:RR/GG/BB or #RRGGBB or rgb(R,G,B)
-        let r = 0,
-          g = 0,
-          b = 0
-
-        if (color.startsWith("rgb:")) {
-          const parts = color.substring(4).split("/")
-          r = parseInt(parts[0], 16) >> 8 // Convert 16-bit to 8-bit
-          g = parseInt(parts[1], 16) >> 8 // Convert 16-bit to 8-bit
-          b = parseInt(parts[2], 16) >> 8 // Convert 16-bit to 8-bit
-        } else if (color.startsWith("#")) {
-          r = parseInt(color.substring(1, 3), 16)
-          g = parseInt(color.substring(3, 5), 16)
-          b = parseInt(color.substring(5, 7), 16)
-        } else if (color.startsWith("rgb(")) {
-          const parts = color.substring(4, color.length - 1).split(",")
-          r = parseInt(parts[0])
-          g = parseInt(parts[1])
-          b = parseInt(parts[2])
-        }
-
-        // Calculate luminance using relative luminance formula
-        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-        // Determine if dark or light based on luminance threshold
-        resolve(luminance > 0.5 ? "light" : "dark")
-      }
-    }
-
-    process.stdin.setRawMode(true)
-    process.stdin.on("data", handler)
-    process.stdout.write("\x1b]11;?\x07")
-
-    timeout = setTimeout(() => {
-      cleanup()
-      resolve("dark")
-    }, 1000)
-  })
-}
 
 export function tui(input: { url: string; args: Args; onExit?: () => Promise<void> }) {
   // promise to prevent immediate exit
@@ -171,7 +111,7 @@ function App() {
   const command = useCommandDialog()
   const sdk = useSDK()
   const toast = useToast()
-  const { theme, mode, setMode } = useTheme()
+  const { theme, mode, setMode, reloadTheme } = useTheme()
   const sync = useSync()
   const exit = useExit()
   const promptRef = usePromptRef()
@@ -388,6 +328,15 @@ function App() {
       value: "theme.switch",
       onSelect: () => {
         dialog.replace(() => <DialogThemeList />)
+      },
+      category: "System",
+    },
+    {
+      title: "Reload theme",
+      value: "theme.reload",
+      onSelect: async () => {
+        const result = await reloadTheme()
+        toast.show({ message: result.message, variant: "success" })
       },
       category: "System",
     },

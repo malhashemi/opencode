@@ -1,6 +1,7 @@
 import { SyntaxStyle, RGBA, type TerminalColors } from "@opentui/core"
 import path from "path"
-import { createEffect, createMemo, onMount } from "solid-js"
+import fs from "fs"
+import { createEffect, createMemo, onMount, onCleanup } from "solid-js"
 import { useSync } from "@tui/context/sync"
 import { createSimpleContext } from "./helper"
 import aura from "./theme/aura.json" with { type: "json" }
@@ -39,6 +40,61 @@ import { useRenderer } from "@opentui/solid"
 import { createStore, produce } from "solid-js/store"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
+
+// Detect terminal background color using OSC 11 escape sequence
+export async function getTerminalBackgroundColor(): Promise<"dark" | "light"> {
+  if (!process.stdin.isTTY) return "dark"
+
+  return new Promise((resolve) => {
+    let timeout: NodeJS.Timeout
+
+    const cleanup = () => {
+      process.stdin.setRawMode(false)
+      process.stdin.removeListener("data", handler)
+      clearTimeout(timeout)
+    }
+
+    const handler = (data: Buffer) => {
+      const str = data.toString()
+      const match = str.match(/\x1b]11;([^\x07\x1b]+)/)
+      if (match) {
+        cleanup()
+        const color = match[1]
+        let r = 0,
+          g = 0,
+          b = 0
+
+        if (color.startsWith("rgb:")) {
+          const parts = color.substring(4).split("/")
+          r = parseInt(parts[0], 16) >> 8
+          g = parseInt(parts[1], 16) >> 8
+          b = parseInt(parts[2], 16) >> 8
+        } else if (color.startsWith("#")) {
+          r = parseInt(color.substring(1, 3), 16)
+          g = parseInt(color.substring(3, 5), 16)
+          b = parseInt(color.substring(5, 7), 16)
+        } else if (color.startsWith("rgb(")) {
+          const parts = color.substring(4, color.length - 1).split(",")
+          r = parseInt(parts[0])
+          g = parseInt(parts[1])
+          b = parseInt(parts[2])
+        }
+
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        resolve(luminance > 0.5 ? "light" : "dark")
+      }
+    }
+
+    process.stdin.setRawMode(true)
+    process.stdin.on("data", handler)
+    process.stdout.write("\x1b]11;?\x07")
+
+    timeout = setTimeout(() => {
+      cleanup()
+      resolve("dark")
+    }, 1000)
+  })
+}
 
 type ThemeColors = {
   primary: RGBA
@@ -302,6 +358,51 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         })
     })
 
+    // File watching for config and theme files - defined after reloadTheme
+    const setupFileWatchers = () => {
+      const watchers: fs.FSWatcher[] = []
+      const configPath = path.join(Global.Path.config, "opencode.json")
+      const themesDir = path.join(Global.Path.config, "themes")
+
+      // Watch config file for theme setting changes
+      if (fs.existsSync(configPath)) {
+        const watcher = fs.watch(configPath, async () => {
+          const file = Bun.file(configPath)
+          if (!(await file.exists())) return
+          const config = await file.json().catch(() => null)
+          if (config?.theme) {
+            if (config.theme !== store.active) {
+              setStore("active", config.theme)
+              kv.set("theme", config.theme)
+            }
+            // Always reload to refresh terminal colors (for system theme)
+            await reloadTheme()
+          }
+        })
+        watchers.push(watcher)
+      }
+
+      // Watch themes directory for custom theme changes
+      if (fs.existsSync(themesDir)) {
+        const watcher = fs.watch(themesDir, async () => {
+          await reloadTheme()
+        })
+        watchers.push(watcher)
+      }
+
+      return watchers
+    }
+
+    // Defer file watcher setup until after reloadTheme is defined
+    let fileWatchers: fs.FSWatcher[] = []
+    createEffect(() => {
+      if (!store.ready) return
+      fileWatchers = setupFileWatchers()
+      onCleanup(() => {
+        for (const w of fileWatchers) w.close()
+      })
+    })
+
     const renderer = useRenderer()
     renderer
       .getPalette({
@@ -336,6 +437,71 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     const syntax = createMemo(() => generateSyntax(values()))
     const subtleSyntax = createMemo(() => generateSubtleSyntax(values()))
 
+    const reloadTheme = async () => {
+      const custom = await getCustomThemes()
+      setStore(
+        produce((draft) => {
+          Object.assign(draft.themes, custom)
+        }),
+      )
+
+      // Clear palette cache and re-detect terminal colors
+      renderer.clearPaletteCache()
+      const colors = await renderer.getPalette({ size: 16 })
+      if (colors.defaultBackground) {
+        const bg = RGBA.fromHex(colors.defaultBackground)
+        const luminance = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b
+        const newMode = luminance > 0.5 ? "light" : "dark"
+        if (newMode !== store.mode) {
+          setStore("mode", newMode)
+          kv.set("theme_mode", newMode)
+        }
+        setStore("themes", "system", generateSystem(colors, newMode))
+      }
+
+      return { success: true, message: "Theme reloaded" }
+    }
+
+    // Signal handlers for external theme reload triggers (Unix only)
+    createEffect(() => {
+      if (!store.ready) return
+      if (process.platform === "win32") return
+
+      const handler = () => setImmediate(() => reloadTheme().catch(() => {}))
+
+      process.on("SIGUSR1", handler)
+      process.on("SIGUSR2", handler)
+
+      onCleanup(() => {
+        process.off("SIGUSR1", handler)
+        process.off("SIGUSR2", handler)
+      })
+    })
+
+    // SIGWINCH handler - re-query terminal colors on resize (for "system" theme)
+    createEffect(() => {
+      if (!store.ready) return
+      if (process.platform === "win32") return
+
+      let lastBg: string | null = null
+
+      const handler = () => {
+        if (store.active !== "system") return
+        setImmediate(async () => {
+          renderer.clearPaletteCache()
+          const colors = await renderer.getPalette({ size: 16 })
+          const bg = colors.defaultBackground ?? null
+          if (bg && bg !== lastBg) {
+            lastBg = bg
+            await reloadTheme()
+          }
+        })
+      }
+
+      process.on("SIGWINCH", handler)
+      onCleanup(() => process.off("SIGWINCH", handler))
+    })
+
     return {
       theme: new Proxy(values(), {
         get(_target, prop) {
@@ -362,6 +528,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         setStore("active", theme)
         kv.set("theme", theme)
       },
+      reloadTheme,
       get ready() {
         return store.ready
       },
@@ -406,6 +573,9 @@ function generateSystem(colors: TerminalColors, mode: "dark" | "light"): ThemeJs
   const grays = generateGrayScale(bg, isDark)
   const textMuted = generateMutedTextColor(bg, isDark)
 
+  // Transparent background - inherits from terminal (allows opacity to show through)
+  const transparent = RGBA.fromInts(0, 0, 0, 0)
+
   // ANSI color references
   const ansiColors = {
     black: palette[0],
@@ -434,10 +604,10 @@ function generateSystem(colors: TerminalColors, mode: "dark" | "light"): ThemeJs
       // Text colors
       text: fg,
       textMuted,
-      selectedListItemText: bg,
+      selectedListItemText: bg, // Keep original bg for contrast
 
-      // Background colors
-      background: bg,
+      // Background colors - main background is transparent to inherit terminal bg
+      background: transparent,
       backgroundPanel: grays[2],
       backgroundElement: grays[3],
       backgroundMenu: grays[3],

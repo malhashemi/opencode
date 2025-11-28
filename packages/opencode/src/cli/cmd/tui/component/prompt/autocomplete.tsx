@@ -330,6 +330,11 @@ export function Autocomplete(props: {
         onSelect: () => command.trigger("theme.switch"),
       },
       {
+        display: "/reload-theme",
+        description: "reload theme from config",
+        onSelect: () => command.trigger("theme.reload"),
+      },
+      {
         display: "/editor",
         description: "open editor",
         onSelect: () => command.trigger("prompt.editor", "prompt"),
