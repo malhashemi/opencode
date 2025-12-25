@@ -13,18 +13,27 @@ Skills are loaded on-demand via the native `skill` tool—agents see available s
 Create one folder per skill name and put a `SKILL.md` inside it.
 OpenCode searches these locations:
 
-- Project config: `.opencode/skill/<name>/SKILL.md`
-- Global config: `~/.opencode/skill/<name>/SKILL.md`
-- Claude-compatible: `.claude/skills/<name>/SKILL.md`
+| Location       | Path                                       | Description                           |
+| -------------- | ------------------------------------------ | ------------------------------------- |
+| XDG config     | `~/.config/opencode/skill/<name>/SKILL.md` | Primary global location (recommended) |
+| Home directory | `~/.opencode/skill/<name>/SKILL.md`        | Alternative global location           |
+| Project        | `.opencode/skill/<name>/SKILL.md`          | Project-specific skills               |
+
+:::note
+On macOS and Linux, `~/.config/opencode/` follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/).
+Both global locations work identically—use whichever fits your dotfiles setup.
+:::
 
 ---
 
 ## Understand discovery
 
 For project-local paths, OpenCode walks up from your current working directory until it reaches the git worktree.
-It loads any matching `skill/*/SKILL.md` in `.opencode/` and any matching `.claude/skills/*/SKILL.md` along the way.
+It loads any matching `skill/*/SKILL.md` in `.opencode/` directories along the way.
 
-Global definitions are also loaded from `~/.opencode/skill/*/SKILL.md`.
+Global definitions are loaded from both `~/.config/opencode/skill/*/SKILL.md` and `~/.opencode/skill/*/SKILL.md`.
+
+You can also set the `OPENCODE_CONFIG_DIR` environment variable to add a custom config directory.
 
 ---
 
